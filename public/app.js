@@ -1,4 +1,4 @@
-import { playShowdownHit, playShowdownMove, playShowdownPrepare } from './showdown-animations.js?v=0.4.1';
+import { playShowdownMove, playShowdownPrepare } from './showdown-animations.js?v=0.4.2';
 
 const TYPE_COLORS = {
   Normal: '#a9a58f', Fire: '#f08c62', Water: '#6caee9', Electric: '#e5c650',
@@ -55,6 +55,26 @@ function savedMusicVolume() {
   }
 }
 
+function parseFloorStreak(value) {
+  const streak = Number(value);
+  return Number.isFinite(streak) ? Math.max(0, Math.floor(streak)) : 0;
+}
+
+function loadFacilityStreak(facility) {
+  return parseFloorStreak(localStorage.getItem(`tower-streak-${facility}`));
+}
+
+function saveFacilityStreak(facility, streak) {
+  const value = String(parseFloorStreak(streak));
+  localStorage.setItem(`tower-streak-${facility}`, value);
+  if (facility === 'tower') localStorage.setItem('tower-streak', value);
+}
+
+const savedFacility = localStorage.getItem('tower-facility');
+const initialFacility = ['little-cup', 'randoms'].includes(savedFacility) ? savedFacility : 'tower';
+const initialFacilityStreak = localStorage.getItem(`tower-streak-${initialFacility}`) ??
+  (savedFacility === null || savedFacility === initialFacility ? localStorage.getItem('tower-streak') : null);
+
 const state = {
   dex: null,
   speciesById: new Map(),
@@ -63,12 +83,12 @@ const state = {
   speciesByMove: new Map(),
   speciesFilterRequest: 0,
   team: [],
-  facility: ['little-cup', 'randoms'].includes(localStorage.getItem('tower-facility')) ? localStorage.getItem('tower-facility') : 'tower',
+  facility: initialFacility,
   selected: 0,
   battle: null,
   currentLogSide: null,
   hpByActive: new Map(),
-  streak: Number(localStorage.getItem('tower-streak') || 0),
+  streak: parseFloorStreak(initialFacilityStreak),
   sfxVolume: savedSfxVolume(),
   musicVolume: savedMusicVolume(),
   battleMusic: null,
@@ -1153,7 +1173,6 @@ function triggerMoveVisual(line, transitioning = false) {
     keepAttackerHome: animationMoveId === 'extremespeed' ||
       (transitioning && ['meteormash', 'doubleedge'].includes(animationMoveId)),
   });
-  state.lastMoveVisual = { move, userSide, targetSide: target, hit: false };
 }
 
 function triggerMovePreparation(line, side, stack = 0) {
@@ -1164,10 +1183,6 @@ function triggerMovePreparation(line, side, stack = 0) {
   showFloatingBattleText(side, focus ? 'FOCUSING!' : 'CHARGING!', focus ? 'float-focus' : 'float-charge', stack);
   if (!move) return;
   playShowdownPrepare(toId(moveName), side, side === 'player' ? 'opponent' : 'player');
-}
-
-function triggerMoveImpact(targetSide) {
-  playShowdownHit(targetSide);
 }
 
 function showFloatingHpChange(side, percent, isHealing, stack = 0) {
@@ -1590,7 +1605,6 @@ function updateHudVolatile(prefix, pokemon, volatile, active) {
 
 async function appendBattleLog(lines, battle, transitions, previousBattle, initial = false) {
   const log = $('#battle-log');
-  state.lastMoveVisual = null;
   const hpByActive = new Map(state.hpByActive);
   if (!hpByActive.size) {
     for (const [key, value] of activeHpSnapshot(previousBattle || battle)) hpByActive.set(key, value);
@@ -1629,11 +1643,7 @@ async function appendBattleLog(lines, battle, transitions, previousBattle, initi
     }
     if (!line || line === '|') continue;
     if (line.startsWith('|move|')) {
-      if (line.split('|').includes('[still]')) {
-        state.lastMoveVisual = null;
-      } else {
-        triggerMoveVisual(line, transitionBySide.size > 0);
-      }
+      if (!line.split('|').includes('[still]')) triggerMoveVisual(line, transitionBySide.size > 0);
     }
     const parts = line.split('|');
     const command = parts[1];
@@ -1689,29 +1699,16 @@ async function appendBattleLog(lines, battle, transitions, previousBattle, initi
         if (maxhp > 0 && delta > 0) {
           hpChangePercent = Math.max(1, Math.round(delta * 100 / maxhp));
           const side = activeSlot.startsWith('p1') ? 'player' : 'opponent';
-          const indirectDamage = parts.some(part => part.startsWith('[from]'));
-          if (command === '-damage' && !indirectDamage && state.lastMoveVisual && !state.lastMoveVisual.hit) {
-            const hitSide = activeSlot === `p1a` ? 'player' : 'opponent';
-            const visualTarget = hitSide === state.lastMoveVisual.userSide
-              ? state.lastMoveVisual.userSide
-              : hitSide;
-            triggerMoveImpact(visualTarget);
-            state.lastMoveVisual.hit = true;
-          }
           const stack = stackBySide.get(side) || 0;
           stackBySide.set(side, stack + 1);
           showFloatingHpChange(side, hpChangePercent, command === '-heal', stack);
           updateActiveHp(side, currentHp.hp, maxhp);
         }
-        state.lastMoveVisual = null;
         hpByActive.set(activeSlot, { hp: currentHp.hp, maxhp });
       }
     }
 
     const event = getBattleLine(line, hpChangePercent);
-    if (['miss', '-miss', '-fail', 'cant', '-immune', '-block', '-prepare'].includes(command)) {
-      state.lastMoveVisual = null;
-    }
     if ((command === '-prepare' || (command === '-singleturn' && toId(parts[3]) === 'movefocuspunch')) && sidePrefix) {
       const stack = stackBySide.get(sidePrefix) || 0;
       triggerMovePreparation(line, sidePrefix, stack);
@@ -2062,8 +2059,13 @@ function renderHistory() {
 async function changeFacility(facility) {
   const previousFacility = state.facility;
   try { localStorage.setItem(`tower-team-${previousFacility}`, JSON.stringify(state.team)); } catch {}
+  if (facility !== previousFacility) {
+    saveFacilityStreak(previousFacility, state.streak);
+    state.streak = loadFacilityStreak(facility);
+  }
   state.facility = facility;
   localStorage.setItem('tower-facility', facility);
+  $('#floor-number').textContent = String(state.streak + 1).padStart(2, '0');
   $('#dex-label').textContent = facility === 'little-cup' ? 'LITTLE CUP' : facility === 'randoms' ? 'RANDOMS' : 'DEX';
   $('#start-battle .button-label').textContent = facility === 'little-cup' ? 'ENTER LITTLE CUP' : facility === 'randoms' ? 'ENTER RANDOMS TOWER' : 'ENTER THE TOWER';
   document.querySelector('.builder-grid').hidden = facility === 'randoms';
@@ -2114,14 +2116,14 @@ function finishBattle(battle) {
   const didWin = battle.winner === battle.player.name;
   if (didWin) {
     state.streak += 1;
-    localStorage.setItem('tower-streak', String(state.streak));
+    saveFacilityStreak(state.facility, state.streak);
   } else {
     const runs = loadRunHistory();
     runs.unshift({ date: new Date().toISOString(), floor: state.streak + 1,
       team: state.team.map(mon => ({ species: getSpecies(mon)?.name || mon.species, item: mon.item || '', moves: (mon.moves || []).slice(0, 4) })) });
     localStorage.setItem(`tower-history-${state.facility}`, JSON.stringify(runs.slice(0, 50)));
     state.streak = 0;
-    localStorage.setItem('tower-streak', '0');
+    saveFacilityStreak(state.facility, 0);
   }
   $('#floor-number').textContent = String(didWin ? state.streak : 1).padStart(2, '0');
   $('#battle-result').hidden = false;

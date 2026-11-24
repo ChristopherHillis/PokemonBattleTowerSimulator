@@ -287,9 +287,3 @@ export function playShowdownPrepare(moveId, userSide, targetSide) {
   return true;
 }
 
-export function playShowdownHit(side) {
-  const scene = createScene();
-  scene.sprites = {};
-  try { window.BattleOtherAnims?.hitmark?.anim?.(scene, [getSprite(side, scene, false)]); }
-  catch (error) { console.warn('Showdown hit animation failed:', error); }
-}
