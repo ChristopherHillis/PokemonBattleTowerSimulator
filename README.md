@@ -23,3 +23,5 @@ npm run dev
 - Teams are saved in the browser. Active battles are kept in server memory and end when the server restarts.
 
 The simulator uses Showdown's `[Gen 3] Custom Game` format so all Generation 3 species are available rather than applying a competitive tier banlist. The app enforces six unique species, level 50, and a 508-EV cap while leaving battle resolution, move effects, status, stat stages, switching, and end-of-battle handling to Showdown. The field indicator reflects Trick Room if present in the engine state, but Trick Room is not a Generation 3 move.
+
+All rights and copyright to Nintendo and Pokemon Company. I do not own pokemon in any way shape or form. All assets pulled from online sources.
