@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: pokemon-battle-tower
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start

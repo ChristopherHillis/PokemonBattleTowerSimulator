@@ -1,0 +1,13 @@
+{
+  "name": "pokemon-battle-tower",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "pokemon-showdown": "^0.11.10"
+  }
+}

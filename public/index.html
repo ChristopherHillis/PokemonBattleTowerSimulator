@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111a24">
+    <title>Battle Tower — Hoenn '03</title>
+    <link rel="preconnect" href="https://raw.githubusercontent.com">
+    <link rel="stylesheet" href="/styles.css?v=0.5.1">
+  </head>
+  <body>
+    <div class="page-noise" aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Battle Tower home">
+        <span class="brand-mark"><span></span></span>
+        <span class="brand-name">BATTLE<span>TOWER</span></span>
+      </a>
+      <div class="topbar-right">
+        <span class="rules-pill"><span id="rule-level">LEVEL 50</span> <i></i> SINGLES 6V6</span>
+        <span class="version-mark">SIMULATOR <b>0.3</b></span>
+        <button id="settings-button" class="settings-button" type="button" aria-haspopup="dialog" aria-controls="settings-dialog">SETTINGS</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="builder-screen">
+        <nav class="facility-tabs" aria-label="Facility views">
+          <div class="facility-tab-group">
+            <button class="facility-tab" data-facility="tower" type="button" aria-label="Singles Battle Tower, level 50">SINGLES TOWER</button>
+            <button class="facility-tab" data-facility="little-cup" type="button" aria-label="Little Cup Tower, level 5">LITTLE CUP</button>
+            <button class="facility-tab" data-facility="randoms" type="button" aria-label="Randoms Battle Tower, level 50">RANDOMS TOWER</button>
+          </div>
+          <div class="facility-tab-group facility-view-tabs">
+            <button id="team-tab" class="facility-tab active" type="button">TEAM BUILDER</button>
+            <button id="history-tab" class="facility-tab" type="button">LOCAL LEADERBOARD</button>
+          </div>
+        </nav>
+        <section id="history-screen" class="history-screen panel" hidden>
+          <div class="panel-topline"><div><span class="section-index">LOCAL RECORDS</span><h2>RUN HISTORY</h2></div><button id="clear-history" class="text-button" type="button">CLEAR HISTORY</button></div>
+          <div id="history-list" class="history-list"></div>
+        </section>
+        <div class="page-heading">
+          <div>
+            <div class="eyebrow"><span>01</span> TRAINER PREPARATION</div>
+            <h1>Build your <em>team</em></h1>
+            <p class="heading-copy">Six Pokémon. One shot at the top. Set your squad before stepping onto the floor.</p>
+          </div>
+        </div>
+
+        <div class="builder-grid">
+          <aside class="roster-panel panel">
+            <div class="panel-topline">
+              <div><span class="section-index">A / 01</span><h2>YOUR ROSTER</h2></div>
+              <span id="team-count" class="count-tag">06 <b>/ 06</b></span>
+            </div>
+            <div id="roster-list" class="roster-list" aria-label="Team roster"></div>
+            <div class="roster-footer">
+              <span class="roster-footer-icon">✳</span>
+              <span>TEAM RULES<span><span id="team-rule-level">LEVEL 50</span> · SINGLES · 6 POKÉMON</span></span>
+            </div>
+          </aside>
+
+          <section class="editor-panel panel">
+            <div class="panel-topline editor-topline">
+              <div><span class="section-index">A / 02</span><h2>POKÉMON DETAILS</h2></div>
+              <div class="editor-top-actions">
+                <span class="level-lock"><span>LV.</span> <b id="editor-level">50</b></span>
+                <button id="sample-team" class="text-button" type="button" title="Restore the sample team">RESET TEAM <span>↺</span></button>
+              </div>
+            </div>
+
+            <div id="editor-content" class="editor-content">
+              <div class="pokemon-identity">
+                <div class="identity-fields">
+                  <label class="field-label" for="species-search">SPECIES <span id="dex-label">DEX</span></label>
+                  <div class="species-picker">
+                    <input id="species-search" class="text-control" type="search" placeholder="Search Pokémon by name or number" autocomplete="off" role="combobox" aria-controls="species-options" aria-expanded="true">
+                    <div class="species-filter-grid">
+                      <select id="species-type-filter" class="select-control" aria-label="Filter by type"></select>
+                      <select id="species-move-filter" class="select-control" aria-label="Filter by move"></select>
+                      <select id="species-sort-stat" class="select-control" aria-label="Sort by stat"></select>
+                      <select id="species-sort-direction" class="select-control" aria-label="Sort direction"></select>
+                    </div>
+                    <div id="species-options" class="species-options" role="listbox" aria-label="Generation 3 Pokémon"></div>
+                    <span id="species-results-note" class="species-results-note"></span>
+                  </div>
+                </div>
+                <div class="species-summary">
+                  <div class="species-nickname">
+                  <label class="field-label nickname-label" for="nickname-input">NICKNAME <span>OPTIONAL</span></label>
+                  <input id="nickname-input" class="text-control" maxlength="18" placeholder="Give your Pokémon a name">
+                  <div id="type-chips" class="type-chips"></div>
+                  <label class="shiny-toggle"><input id="shiny-toggle" type="checkbox"><span class="shiny-toggle-mark" aria-hidden="true">✦</span><span>SHINY</span></label>
+                  </div>
+                  <div class="portrait-frame">
+                    <span class="portrait-orbit orbit-a"></span><span class="portrait-orbit orbit-b"></span>
+                    <img id="editor-sprite" alt="" class="pokemon-sprite">
+                    <span id="editor-number" class="dex-number">#000</span>
+                  </div>
+                  <div class="base-stats-block">
+                  <div class="base-stats-heading"><span>BASE STATS</span><span id="base-stat-total">TOTAL 000</span></div>
+                    <div id="base-stats" class="base-stats"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="field-grid">
+                <div class="field-block"><label class="field-label" for="item-select">HELD ITEM</label><select id="item-select" class="select-control"></select><div id="item-detail" class="choice-detail"></div></div>
+                <div class="field-block"><label class="field-label" for="ability-select">ABILITY <span>SPECIES</span></label><select id="ability-select" class="select-control"></select><div id="ability-detail" class="choice-detail"></div></div>
+                <label class="field-block"><span class="field-label">NATURE <span>25 TOTAL</span></span><select id="nature-select" class="select-control"></select></label>
+                <div class="field-block locked-level-block"><span class="field-label">BATTLE LEVEL <span>FIXED</span></span><div id="locked-level-value" class="locked-value">50 <span>🔒</span></div></div>
+              </div>
+
+              <div class="moves-section">
+                <div class="subsection-heading"><span class="subsection-number">01</span><h3>MOVESET</h3><span id="learnset-note" class="subsection-note">UP TO 4 · LEVEL 50 LEARNSET</span></div>
+                <div id="move-list" class="move-list"></div>
+              </div>
+
+              <div class="stats-section">
+                <div class="subsection-heading"><span class="subsection-number">02</span><h3>EFFORT VALUES</h3><span id="ev-total" class="ev-total">0 / 508 EVS</span></div>
+                <div id="ev-list" class="ev-list"></div>
+                <div class="calculated-stats-heading">LEVEL 50 STATS AFTER EVS &amp; NATURE</div>
+                <div id="calculated-stats" class="calculated-stats"></div>
+              </div>
+              <div class="stats-section">
+                <div class="subsection-heading"><span class="subsection-number">03</span><h3>INDIVIDUAL VALUES</h3><span class="subsection-note">0–31 PER STAT</span></div>
+                <div id="iv-list" class="ev-list"></div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <div id="random-facility-note" class="random-facility-note panel" hidden>
+          <span class="section-index">RANDOM TEAM FORMAT</span>
+          <h2>Both sides receive a fresh random team.</h2>
+          <p>Six unique fully evolved Pokémon at level 50. A fresh random team is generated for you and your opponent on every floor.</p>
+        </div>
+
+        <div class="builder-bottom">
+          <div class="mechanics-note"><span class="note-icon">i</span><span><b>AUTHENTIC BATTLES</b> Powered by Pokémon Showdown’s battle engine. Species availability follows the selected facility.</span></div>
+          <button id="start-battle" class="primary-button" type="button">
+            <span class="button-label">ENTER THE TOWER</span><span class="button-arrow">↗</span>
+          </button>
+        </div>
+        <div id="builder-error" class="inline-error" role="alert" hidden></div>
+      </section>
+
+      <section id="battle-screen" hidden>
+        <div class="battle-heading">
+          <div>
+            <div class="eyebrow"><span>02</span> BATTLE IN PROGRESS</div>
+            <h1>Battle <em>Tower</em></h1>
+          </div>
+          <div class="battle-score"><span>FLOOR NUMBER</span><b id="floor-number">01</b></div>
+          <button id="back-to-team" class="text-button" type="button">← TEAM BUILDER</button>
+        </div>
+
+        <div class="battle-layout">
+          <section class="arena-panel panel">
+            <div class="arena-top">
+              <div><span class="section-index">B / 01</span><h2 id="opponent-name">TOWER TRAINER</h2></div>
+            <div id="field-status" class="field-status" aria-live="polite"></div>
+            <div id="player-screen-status" class="field-screen-status field-screen-player" aria-live="polite" hidden></div>
+            <div id="opponent-screen-status" class="field-screen-status field-screen-opponent" aria-live="polite" hidden></div>
+            <div class="turn-badge">TURN <b id="turn-number">01</b></div>
+            </div>
+            <div id="arena" class="arena">
+              <div class="arena-grid"></div>
+              <div id="field-visual-layer" class="field-visual-layer" aria-hidden="true"></div>
+              <div class="battle-side opponent-side">
+                <div id="opponent-hazards" class="hazard-visual" aria-label="Opponent-side hazards"></div>
+                <div class="battle-mon-info">
+                  <div class="battle-name-row"><b id="opponent-active-name">—</b><span class="battle-name-separator">|</span><span id="opponent-status" class="battle-status">—</span><span id="opponent-level" class="battle-level">Lv.50</span></div>
+                  <div class="battle-health-row"><div class="health-track"><span id="opponent-health" class="health-fill"></span></div><span id="opponent-hp" class="battle-hp-percent">100%</span></div>
+                  <div id="opponent-effects" class="battle-effects" aria-label="Opponent stat stages"></div>
+                </div>
+                <img id="opponent-sprite" class="battle-sprite foe-sprite" alt="">
+                <div id="opponent-shadow" class="sprite-shadow"></div>
+              </div>
+              <div class="arena-divider"><span>VS</span></div>
+              <div class="battle-side player-side">
+                <div class="player-platform"></div>
+                <div id="player-hazards" class="hazard-visual" aria-label="Your-side hazards"></div>
+                <div class="battle-mon-info">
+                  <div class="battle-name-row"><b id="player-active-name">—</b><span class="battle-name-separator">|</span><span id="player-status" class="battle-status">—</span><span id="player-level" class="battle-level">Lv.50</span></div>
+                  <div class="battle-health-row"><div class="health-track"><span id="player-health" class="health-fill"></span></div><span id="player-hp" class="battle-hp-percent">100%</span></div>
+                  <div id="player-effects" class="battle-effects" aria-label="Your stat stages"></div>
+                </div>
+                <img id="player-sprite" class="battle-sprite ally-sprite" alt="">
+                <div id="player-shadow" class="sprite-shadow ally-shadow"></div>
+              </div>
+              <div id="move-effect-layer" class="move-effect-layer" aria-hidden="true"></div>
+              <div id="battle-float-layer" class="battle-float-layer" aria-hidden="true"></div>
+            </div>
+
+            <div id="battle-turn-display" class="battle-turn-display" aria-live="polite" aria-atomic="true">
+              <span class="battle-turn-label">LIVE BATTLE</span>
+              <div id="battle-turn-message" class="battle-turn-lines"></div>
+            </div>
+
+            <div class="party-strip">
+              <div class="party-group player-party-group">
+                <div class="party-label"><span>YOUR PARTY</span><b id="party-alive">6 / 6</b></div>
+                <div id="party-list" class="party-list"></div>
+              </div>
+              <div class="party-group opponent-party-group">
+                <div class="opponent-party-label"><span>OPPONENT</span><b id="opponent-party-alive">6 / 6</b></div>
+                <div id="opponent-party-list" class="party-list opponent-party-list"></div>
+              </div>
+            </div>
+
+            <div class="battle-controls">
+              <div id="action-heading" class="action-heading"><span class="section-index">YOUR MOVE</span><span>CHOOSE AN ACTION</span></div>
+              <div id="action-buttons" class="action-buttons"></div>
+              <div id="battle-result" class="battle-result" hidden>
+                <div><span class="result-eyebrow">BATTLE COMPLETE</span><b id="result-title"></b><span id="result-subtitle"></span></div>
+                <button id="next-battle" class="primary-button" type="button"><span class="button-label">NEXT CHALLENGER</span><span class="button-arrow">↗</span></button>
+              </div>
+            </div>
+          </section>
+
+          <aside class="log-panel panel">
+            <div class="panel-topline">
+              <div><span class="section-index">B / 02</span><h2>BATTLE LOG</h2></div>
+              <span class="log-live"><i></i> LIVE</span>
+            </div>
+            <div id="battle-log" class="battle-log" aria-live="off"></div>
+            <div class="log-footer"><span id="log-level">LEVEL 50</span> <span>&middot;</span> SINGLES</div>
+          </aside>
+        </div>
+      </section>
+    </main>
+    <div id="battle-loading" class="battle-loading" role="status" aria-live="polite" aria-busy="false" hidden>
+      <div class="battle-loading-card">
+        <div class="loading-emblem" aria-hidden="true"><span></span></div>
+        <span class="eyebrow"><span>FACILITY ACCESS</span> / PREPARING</span>
+        <h2>Preparing your battle</h2>
+        <p>Assembling the opponent team and setting the arena.</p>
+        <div class="loading-progress" aria-hidden="true"><span></span></div>
+      </div>
+    </div>
+    <dialog id="leave-confirmation" class="settings-dialog leave-dialog" aria-labelledby="leave-title" aria-describedby="leave-description">
+      <div class="settings-heading"><div><span class="section-index">ACTIVE RUN</span><h2 id="leave-title">Leave the battle?</h2></div></div>
+      <p id="leave-description" class="leave-description">Your current battle will be abandoned and the team builder will reopen.</p>
+      <div class="leave-actions">
+        <button id="stay-in-battle" class="settings-button" type="button">NO, STAY</button>
+        <button id="confirm-leave-run" class="primary-button" type="button">YES, LEAVE RUN</button>
+      </div>
+    </dialog>
+    <dialog id="settings-dialog" class="settings-dialog" aria-labelledby="settings-title">
+      <div class="settings-heading"><div><span class="section-index">BATTLE TOWER</span><h2 id="settings-title">Settings</h2></div><button id="settings-close" class="settings-close" type="button" aria-label="Close settings">×</button></div>
+      <label class="settings-control settings-volume" for="sfx-volume"><span><b>Sound effects</b><small>Pokémon cries on entry and faint.</small></span><span class="volume-input"><input id="sfx-volume" type="range" min="0" max="100" step="1"><output id="sfx-volume-value" for="sfx-volume">55%</output></span></label>
+      <label class="settings-control settings-volume" for="music-volume"><span><b>Battle music</b><small>Random local theme during each battle.</small></span><span class="volume-input"><input id="music-volume" type="range" min="0" max="100" step="1"><output id="music-volume-value" for="music-volume">35%</output></span></label>
+      <p class="settings-note">Changes are saved in this browser.</p>
+    </dialog>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <script>window.$ = { easing: {}, fx: { off: false } }; window.Config = { routes: { client: window.location.host } };</script>
+    <script src="/vendor/showdown/battle-animations.js"></script>
+    <script src="/vendor/showdown/battle-animations-moves.js"></script>
+    <script type="module" src="/app.js?v=0.5.0"></script>
+  </body>
+</html>
