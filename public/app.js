@@ -529,7 +529,6 @@ async function renderEditor() {
   renderMoves(learnset, set);
   renderEvs(set);
   renderCalculatedStats(set, species);
-  renderIvs(set);
   renderRoster();
 }
 
@@ -740,34 +739,7 @@ function renderCalculatedStats(set, species) {
   }));
 }
 
-function renderIvs(set) {
-  const ivList = $('#iv-list');
-  ivList.replaceChildren();
-  for (const [stat, label] of STAT_LABELS) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'ev-control';
-    const caption = document.createElement('label');
-    caption.htmlFor = `iv-${stat}`;
-    caption.textContent = label;
-    const input = document.createElement('input');
-    input.id = `iv-${stat}`;
-    input.className = 'ev-input';
-    input.type = 'number';
-    input.min = '0';
-    input.max = '31';
-    input.step = '1';
-    input.value = String(set.ivs[stat] ?? 31);
-    input.addEventListener('input', () => {
-      const value = Number(input.value);
-      set.ivs[stat] = Number.isFinite(value) ? Math.min(31, Math.max(0, Math.trunc(value))) : 0;
-      input.value = String(set.ivs[stat]);
-      renderCalculatedStats(set, getSpecies(set));
-      persistTeam();
-    });
-    wrapper.append(caption, input);
-    ivList.append(wrapper);
-  }
-}
+
 
 function bindEditorEvents() {
   $('#species-search').addEventListener('input', renderSpeciesOptions);

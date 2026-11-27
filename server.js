@@ -258,7 +258,7 @@ function createOpponentTeamAttempt(facility = 'tower') {
   const usedSpecies = new Set();
   const usedItems = new Set();
   const pool = facility === 'little-cup'
-    ? speciesList.filter(species => dex.species.get(species.id).tier === 'LC')
+    ? speciesList.filter(species => isLittleCupEligible(species.id))
     : [...fullyEvolvedSpecies];
   const team = [];
 
