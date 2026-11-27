@@ -158,6 +158,33 @@ function getLearnsetMoves(speciesId, level = 50) {
   return result;
 }
 
+const LITTLE_CUP_ALLOWED_EXCEPTIONS = new Set([
+  'Abra',
+  'Magnemite',
+  'Aipom',
+  'Cutiefly',
+  'Drifloon',
+  'Gligar',
+  'Gothita',
+  'Meditite',
+  'Misdreavus',
+  'Murkrow',
+  'Porygon',
+  'Scyther',
+  'Sneasel',
+  'Tangela',
+  'Trapinch',
+  'Vulpix',
+  'Wingull',
+  'Yanma',
+].map(Dex.toID));
+
+function isLittleCupEligible(speciesId) {
+  const species = dex.species.get(speciesId);
+  if (!species?.exists) return false;
+  return species.tier === 'LC' || LITTLE_CUP_ALLOWED_EXCEPTIONS.has(species.id);
+}
+
 function validateTeam(team, facility = 'tower') {
   if (!Array.isArray(team) || team.length !== 6) {
     return 'A team must contain exactly six Pokémon.';
@@ -170,7 +197,7 @@ function validateTeam(team, facility = 'tower') {
     if (!speciesById.has(speciesId)) return `Pokémon ${position} is not available in Generation 3.`;
     if (speciesSeen.has(speciesId)) return 'A team cannot use the same species more than once.';
     speciesSeen.add(speciesId);
-    if (facility === 'little-cup' && dex.species.get(speciesId).tier !== 'LC') {
+    if (facility === 'little-cup' && !isLittleCupEligible(speciesId)) {
       return `${speciesById.get(speciesId).name} is not eligible for Little Cup.`;
     }
     const expectedLevel = facility === 'little-cup' ? 5 : 50;
@@ -394,10 +421,10 @@ function pokemonSummary(pokemon, { revealMoves = false, slot = 0, hidden = false
     summary.moves = pokemon.moveSlots
       .filter(move => revealMoves === 'used' ? move.used : true)
       .map(move => ({
-      id: move.id,
-      name: move.move,
-      pp: move.pp,
-      maxpp: move.maxpp,
+        id: move.id,
+        name: move.move,
+        pp: move.pp,
+        maxpp: move.maxpp,
       }));
   }
   return summary;

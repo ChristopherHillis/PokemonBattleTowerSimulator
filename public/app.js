@@ -378,6 +378,31 @@ async function refreshSpeciesOptions() {
   if (requestId === state.speciesFilterRequest) renderSpeciesOptions();
 }
 
+const LITTLE_CUP_EXTRA_ALLOWED = new Set([
+  'Abra',
+  'Magnemite',
+  'Aipom',
+  'Cutiefly',
+  'Drifloon',
+  'Gligar',
+  'Gothita',
+  'Meditite',
+  'Misdreavus',
+  'Murkrow',
+  'Porygon',
+  'Scyther',
+  'Sneasel',
+  'Tangela',
+  'Trapinch',
+  'Vulpix',
+  'Wingull',
+  'Yanma',
+].map(toId));
+
+function isLittleCupEligible(species) {
+  return Boolean(species) && (species.tier === 'LC' || LITTLE_CUP_EXTRA_ALLOWED.has(species.id));
+}
+
 function renderSpeciesOptions() {
   const query = $('#species-search').value.trim().toLowerCase();
   const type = $('#species-type-filter').value;
@@ -386,7 +411,7 @@ function renderSpeciesOptions() {
   const direction = $('#species-sort-direction').value === 'desc' ? -1 : 1;
   const moveMatches = moveId ? state.speciesByMove.get(moveId) : null;
   const speciesOptions = state.dex.species.filter(species => {
-    if (state.facility === 'little-cup' && species.tier !== 'LC') return false;
+    if (state.facility === 'little-cup' && !isLittleCupEligible(species)) return false;
     const matchesSearch = !query ||
       species.name.toLowerCase().includes(query) ||
       String(species.num).includes(query.replace(/^#/, ''));
@@ -795,7 +820,7 @@ function bindEditorEvents() {
   });
 }
 
-async function checkTeam() {
+/**async function checkTeam() {
   if (state.team.length !== 6) return 'Your team needs exactly six Pokémon.';
   const level = state.facility === 'little-cup' ? 5 : 50;
   const speciesIds = state.team.map(set => toId(set.species));
@@ -816,6 +841,7 @@ async function checkTeam() {
   }
   return null;
 }
+  **/
 
 function formatName(pokemon) {
   return pokemon.name && pokemon.name !== pokemon.species ? pokemon.name : pokemon.species;
@@ -1109,7 +1135,7 @@ function renderShowdownFieldVisuals(weather, trickRoom) {
     mp4.type = 'video/mp4';
     video.append(webm, mp4);
     layer.append(video);
-    video.play().catch(() => {});
+    video.play().catch(() => { });
   } else if (activeWeather) {
     const image = document.createElement('img');
     image.className = 'showdown-field-image';
@@ -1383,146 +1409,146 @@ function getBattleLine(raw, hpChangePercent = null) {
   })[parts[3]] || parts[3];
   const event = (text, className = 'log-system') => ({ text, className });
   switch (command) {
-  case 'turn':
-    return event(`Turn ${parts[2]}`, 'log-turn');
-  case 'move':
-    return event(`${sideActor(parts[2])} used ${parts[3]}!`, '');
-  case 'switch':
-  case 'drag':
-  case 'replace':
-    return event(`${actor(parts[2])} was sent out!`);
-  case '-damage': {
-    const target = sideActor(parts[2]);
-    const amount = hpChangePercent === null ? '' : ` (${hpChangePercent}%)`;
-    if (visibleSourceName) return event(`${target} was hurt by ${visibleSourceName}${amount}!`, 'log-damage');
-    return event(`${target} took damage${amount}!`, 'log-damage');
-  }
-  case '-heal': {
-    const target = sideActor(parts[2]);
-    const amount = hpChangePercent === null ? '' : ` (${hpChangePercent}%)`;
-    return event(sourceName
-      ? `${target} restored HP using ${sourceName}${amount}!`
-      : `${target} restored HP${amount}!`, 'log-heal');
-  }
-  case 'faint':
-    return event(`${actor(parts[2])} fainted!`, 'log-damage');
-  case 'miss':
-  case '-miss':
-    return event(`${sideActor(parts[2])}'s attack missed!`, 'log-miss');
-  case '-status':
-    if (parts[3] === 'slp') return event(`${actor(parts[2])} fell asleep!`);
-    if (parts[3] === 'frz') return event(`${actor(parts[2])} was frozen solid!`);
-    return event(`${actor(parts[2])} was ${statusText}!`);
-  case '-curestatus':
-    return event(`${actor(parts[2])} was cured of ${statusName(parts[3]).toLowerCase()}!`, 'log-heal');
-  case '-cureteam':
-    return event(`${actor(parts[2])}'s team was cured of its status conditions!`, 'log-heal');
-  case '-boost':
-    return event(`${actor(parts[2])}'s ${statName(parts[3])} rose!`, 'log-boost-up');
-  case '-unboost':
-    return event(`${actor(parts[2])}'s ${statName(parts[3])} fell!`, 'log-boost-down');
-  case '-setboost':
-    return event(`${actor(parts[2])}'s ${statName(parts[3])} changed!`);
-  case '-clearboost':
-  case '-clearpositiveboost':
-  case '-clearnegativeboost':
-    return event(`${actor(parts[2])}'s stat changes were cleared!`);
-  case '-clearallboost':
-    return event('All stat changes were cleared!');
-  case '-invertboost':
-    return event(`${actor(parts[2])}'s stat changes were inverted!`);
-  case '-swapboost':
-    return event(`${actor(parts[2])} swapped stat changes!`);
-  case '-copyboost':
-    return event(`${actor(parts[2])} copied ${actor(parts[3])}'s stat changes!`);
-  case '-weather':
-    if (parts.includes('[upkeep]')) return null;
-    return event(({
-      none: 'The weather cleared.',
-      RainDance: 'It started to rain!',
-      SunnyDay: 'The sunlight turned harsh!',
-      Sandstorm: 'A sandstorm kicked up!',
-      Hail: 'It started to hail!',
-    })[parts[2]] || `${titleCase(parts[2])} began!`);
-  case '-item':
-    return event(`${actor(parts[2])} obtained ${parts[3]}!`);
-  case '-enditem':
-    return event(`${actor(parts[2])}'s ${parts[3]} was used up!`);
-  case '-ability':
-    return event(`${actor(parts[2])}'s ${parts[3]} activated!`);
-  case '-activate': {
-    const effect = effectName(parts[3]);
-    const from = actor(parts.find(part => part.startsWith('[of]'))?.slice(5));
-    return event(`${from || actor(parts[2])}${from ? "'s" : ''} ${effect} activated!`);
-  }
-  case '-start':
-    if (toId(effectName(parts[3])) === 'confusion') return event(`${actor(parts[2])} became confused!`);
-    if (toId(effectName(parts[3])) === 'leechseed') return event(`${actor(parts[2])} was seeded!`);
-    if (toId(effectName(parts[3])) === 'attract') return event(`${actor(parts[2])} fell in love!`);
-    if (toId(effectName(parts[3])) === 'substitute') return event(`${actor(parts[2])} put in a substitute!`);
-    return event(`${actor(parts[2])}: ${effectName(parts[3])} started!`);
-  case '-end':
-    if (toId(effectName(parts[3])) === 'confusion') return event(`${actor(parts[2])} snapped out of confusion!`);
-    if (toId(effectName(parts[3])) === 'leechseed') return event(`${actor(parts[2])} was freed from Leech Seed!`);
-    if (toId(effectName(parts[3])) === 'attract') return event(`${actor(parts[2])} got over its infatuation!`);
-    if (toId(effectName(parts[3])) === 'substitute') return event(`${actor(parts[2])}'s substitute faded!`);
-    return event(`${actor(parts[2])}: ${effectName(parts[3])} ended!`);
-  case '-sidestart':
-  case '-fieldstart':
-    return event(`${effectName(parts[3] || parts[2] || 'An effect')} took effect!`);
-  case '-sideend':
-  case '-fieldend':
-    return event(`${effectName(parts[3] || parts[2] || 'An effect')} wore off!`);
-  case '-prepare':
-    return event(`${actor(parts[2])} is preparing ${parts[3]}!`);
-  case '-singleturn':
-    if (toId(parts[3]) === 'movefocuspunch') {
-      return event(`${actor(parts[2])} is focusing for Focus Punch!`);
+    case 'turn':
+      return event(`Turn ${parts[2]}`, 'log-turn');
+    case 'move':
+      return event(`${sideActor(parts[2])} used ${parts[3]}!`, '');
+    case 'switch':
+    case 'drag':
+    case 'replace':
+      return event(`${actor(parts[2])} was sent out!`);
+    case '-damage': {
+      const target = sideActor(parts[2]);
+      const amount = hpChangePercent === null ? '' : ` (${hpChangePercent}%)`;
+      if (visibleSourceName) return event(`${target} was hurt by ${visibleSourceName}${amount}!`, 'log-damage');
+      return event(`${target} took damage${amount}!`, 'log-damage');
     }
-    return null;
-  case '-block':
-    return event(`${actor(parts[2])} blocked the effect!`);
-  case '-hitcount':
-    return event(`Hit ${parts[3] || parts[2]} times!`);
-  case '-ohko':
-    return event("It's a one-hit KO!", 'log-damage');
-  case '-transform':
-    return event(`${actor(parts[2])} transformed!`);
-  case '-immune':
-    return event(`${actor(parts[2])} is immune!`);
-  case '-fail':
-    return event(`${actor(parts[2])}'s move failed!`);
-  case 'cant': {
-    const target = actor(parts[2]);
-    const reason = parts[3];
-    if (reason === 'recharge') return event(`${target} must recharge!`);
-    if (reason === 'slp') return event(`${target} is fast asleep.`);
-    if (reason === 'frz') return event(`${target} is frozen solid!`);
-    if (reason === 'par') return event(`${target} is paralyzed! It can't move!`);
-    if (reason === 'flinch') return event(`${target} flinched!`);
-    if (reason === 'confusion') return event(`${target} is confused!`);
-    return event(`${target} can't move!`);
-  }
-  case '-crit':
-    return event('A critical hit!', 'log-damage');
-  case '-supereffective':
-    return event("It's super effective!", 'log-damage');
-  case '-resisted':
-    return event("It's not very effective...", 'log-system');
-  case '-hint':
-    return event(parts.slice(2).join('|'));
-  case '-message':
-    return event(parts.slice(2).join('|'));
-  case 'win':
-    return event(`${parts[2]} won the battle!`, 'log-turn');
-  case 'tie':
-    return event('The battle ended in a draw.', 'log-turn');
-  case 'start':
-    return event('The battle begins!', 'log-turn');
-  case 'message':
-    return event(parts.slice(2).join('|'));
-  default:
-    return null;
+    case '-heal': {
+      const target = sideActor(parts[2]);
+      const amount = hpChangePercent === null ? '' : ` (${hpChangePercent}%)`;
+      return event(sourceName
+        ? `${target} restored HP using ${sourceName}${amount}!`
+        : `${target} restored HP${amount}!`, 'log-heal');
+    }
+    case 'faint':
+      return event(`${actor(parts[2])} fainted!`, 'log-damage');
+    case 'miss':
+    case '-miss':
+      return event(`${sideActor(parts[2])}'s attack missed!`, 'log-miss');
+    case '-status':
+      if (parts[3] === 'slp') return event(`${actor(parts[2])} fell asleep!`);
+      if (parts[3] === 'frz') return event(`${actor(parts[2])} was frozen solid!`);
+      return event(`${actor(parts[2])} was ${statusText}!`);
+    case '-curestatus':
+      return event(`${actor(parts[2])} was cured of ${statusName(parts[3]).toLowerCase()}!`, 'log-heal');
+    case '-cureteam':
+      return event(`${actor(parts[2])}'s team was cured of its status conditions!`, 'log-heal');
+    case '-boost':
+      return event(`${actor(parts[2])}'s ${statName(parts[3])} rose!`, 'log-boost-up');
+    case '-unboost':
+      return event(`${actor(parts[2])}'s ${statName(parts[3])} fell!`, 'log-boost-down');
+    case '-setboost':
+      return event(`${actor(parts[2])}'s ${statName(parts[3])} changed!`);
+    case '-clearboost':
+    case '-clearpositiveboost':
+    case '-clearnegativeboost':
+      return event(`${actor(parts[2])}'s stat changes were cleared!`);
+    case '-clearallboost':
+      return event('All stat changes were cleared!');
+    case '-invertboost':
+      return event(`${actor(parts[2])}'s stat changes were inverted!`);
+    case '-swapboost':
+      return event(`${actor(parts[2])} swapped stat changes!`);
+    case '-copyboost':
+      return event(`${actor(parts[2])} copied ${actor(parts[3])}'s stat changes!`);
+    case '-weather':
+      if (parts.includes('[upkeep]')) return null;
+      return event(({
+        none: 'The weather cleared.',
+        RainDance: 'It started to rain!',
+        SunnyDay: 'The sunlight turned harsh!',
+        Sandstorm: 'A sandstorm kicked up!',
+        Hail: 'It started to hail!',
+      })[parts[2]] || `${titleCase(parts[2])} began!`);
+    case '-item':
+      return event(`${actor(parts[2])} obtained ${parts[3]}!`);
+    case '-enditem':
+      return event(`${actor(parts[2])}'s ${parts[3]} was used up!`);
+    case '-ability':
+      return event(`${actor(parts[2])}'s ${parts[3]} activated!`);
+    case '-activate': {
+      const effect = effectName(parts[3]);
+      const from = actor(parts.find(part => part.startsWith('[of]'))?.slice(5));
+      return event(`${from || actor(parts[2])}${from ? "'s" : ''} ${effect} activated!`);
+    }
+    case '-start':
+      if (toId(effectName(parts[3])) === 'confusion') return event(`${actor(parts[2])} became confused!`);
+      if (toId(effectName(parts[3])) === 'leechseed') return event(`${actor(parts[2])} was seeded!`);
+      if (toId(effectName(parts[3])) === 'attract') return event(`${actor(parts[2])} fell in love!`);
+      if (toId(effectName(parts[3])) === 'substitute') return event(`${actor(parts[2])} put in a substitute!`);
+      return event(`${actor(parts[2])}: ${effectName(parts[3])} started!`);
+    case '-end':
+      if (toId(effectName(parts[3])) === 'confusion') return event(`${actor(parts[2])} snapped out of confusion!`);
+      if (toId(effectName(parts[3])) === 'leechseed') return event(`${actor(parts[2])} was freed from Leech Seed!`);
+      if (toId(effectName(parts[3])) === 'attract') return event(`${actor(parts[2])} got over its infatuation!`);
+      if (toId(effectName(parts[3])) === 'substitute') return event(`${actor(parts[2])}'s substitute faded!`);
+      return event(`${actor(parts[2])}: ${effectName(parts[3])} ended!`);
+    case '-sidestart':
+    case '-fieldstart':
+      return event(`${effectName(parts[3] || parts[2] || 'An effect')} took effect!`);
+    case '-sideend':
+    case '-fieldend':
+      return event(`${effectName(parts[3] || parts[2] || 'An effect')} wore off!`);
+    case '-prepare':
+      return event(`${actor(parts[2])} is preparing ${parts[3]}!`);
+    case '-singleturn':
+      if (toId(parts[3]) === 'movefocuspunch') {
+        return event(`${actor(parts[2])} is focusing for Focus Punch!`);
+      }
+      return null;
+    case '-block':
+      return event(`${actor(parts[2])} blocked the effect!`);
+    case '-hitcount':
+      return event(`Hit ${parts[3] || parts[2]} times!`);
+    case '-ohko':
+      return event("It's a one-hit KO!", 'log-damage');
+    case '-transform':
+      return event(`${actor(parts[2])} transformed!`);
+    case '-immune':
+      return event(`${actor(parts[2])} is immune!`);
+    case '-fail':
+      return event(`${actor(parts[2])}'s move failed!`);
+    case 'cant': {
+      const target = actor(parts[2]);
+      const reason = parts[3];
+      if (reason === 'recharge') return event(`${target} must recharge!`);
+      if (reason === 'slp') return event(`${target} is fast asleep.`);
+      if (reason === 'frz') return event(`${target} is frozen solid!`);
+      if (reason === 'par') return event(`${target} is paralyzed! It can't move!`);
+      if (reason === 'flinch') return event(`${target} flinched!`);
+      if (reason === 'confusion') return event(`${target} is confused!`);
+      return event(`${target} can't move!`);
+    }
+    case '-crit':
+      return event('A critical hit!', 'log-damage');
+    case '-supereffective':
+      return event("It's super effective!", 'log-damage');
+    case '-resisted':
+      return event("It's not very effective...", 'log-system');
+    case '-hint':
+      return event(parts.slice(2).join('|'));
+    case '-message':
+      return event(parts.slice(2).join('|'));
+    case 'win':
+      return event(`${parts[2]} won the battle!`, 'log-turn');
+    case 'tie':
+      return event('The battle ended in a draw.', 'log-turn');
+    case 'start':
+      return event('The battle begins!', 'log-turn');
+    case 'message':
+      return event(parts.slice(2).join('|'));
+    default:
+      return null;
   }
 }
 
@@ -2058,7 +2084,7 @@ function renderHistory() {
 
 async function changeFacility(facility) {
   const previousFacility = state.facility;
-  try { localStorage.setItem(`tower-team-${previousFacility}`, JSON.stringify(state.team)); } catch {}
+  try { localStorage.setItem(`tower-team-${previousFacility}`, JSON.stringify(state.team)); } catch { }
   if (facility !== previousFacility) {
     saveFacilityStreak(previousFacility, state.streak);
     state.streak = loadFacilityStreak(facility);
@@ -2084,27 +2110,29 @@ async function changeFacility(facility) {
   });
   if (facility === 'little-cup') {
     let savedLittleCup = null;
-    try { savedLittleCup = JSON.parse(localStorage.getItem('tower-team-little-cup') || 'null'); } catch {}
+    try { savedLittleCup = JSON.parse(localStorage.getItem('tower-team-little-cup') || 'null'); } catch { }
     if (Array.isArray(savedLittleCup) && savedLittleCup.length === 6 && savedLittleCup.every(mon => state.speciesById.get(toId(mon.species))?.tier === 'LC')) {
       state.team = ensureTeamDefaults(savedLittleCup);
     } else {
       const eligible = state.dex.species.filter(species => species.tier === 'LC').slice(0, 6);
       state.team = await Promise.all(eligible.map(async species => {
-      const learnset = await loadLearnset(species, 5);
-      return { species: species.name, name: '', item: '', ability: species.abilities[0], level: 5, nature: 'Serious', evs: {},
-          ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, moves: learnset.slice(0, 4).map(move => move.name) };
+        const learnset = await loadLearnset(species, 5);
+        return {
+          species: species.name, name: '', item: '', ability: species.abilities[0], level: 5, nature: 'Serious', evs: {},
+          ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, moves: learnset.slice(0, 4).map(move => move.name)
+        };
       }));
     }
   } else if (facility === 'randoms') {
     state.team = [];
   } else {
     let savedTower = null;
-    try { savedTower = JSON.parse(localStorage.getItem('tower-team-tower') || localStorage.getItem('tower-team') || 'null'); } catch {}
+    try { savedTower = JSON.parse(localStorage.getItem('tower-team-tower') || localStorage.getItem('tower-team') || 'null'); } catch { }
     state.team = ensureTeamDefaults(Array.isArray(savedTower) && savedTower.length === 6 ? savedTower : clone(SAMPLE_TEAM));
   }
   state.selected = 0;
   if (facility === 'randoms') {
-    try { localStorage.setItem('tower-facility', facility); } catch {}
+    try { localStorage.setItem('tower-facility', facility); } catch { }
     renderRoster();
   } else {
     persistTeam(); renderRoster(); await renderEditor(); renderSpeciesOptions();
@@ -2119,8 +2147,10 @@ function finishBattle(battle) {
     saveFacilityStreak(state.facility, state.streak);
   } else {
     const runs = loadRunHistory();
-    runs.unshift({ date: new Date().toISOString(), floor: state.streak + 1,
-      team: state.team.map(mon => ({ species: getSpecies(mon)?.name || mon.species, item: mon.item || '', moves: (mon.moves || []).slice(0, 4) })) });
+    runs.unshift({
+      date: new Date().toISOString(), floor: state.streak + 1,
+      team: state.team.map(mon => ({ species: getSpecies(mon)?.name || mon.species, item: mon.item || '', moves: (mon.moves || []).slice(0, 4) }))
+    });
     localStorage.setItem(`tower-history-${state.facility}`, JSON.stringify(runs.slice(0, 50)));
     state.streak = 0;
     saveFacilityStreak(state.facility, 0);
@@ -2144,7 +2174,7 @@ async function startBattle() {
   setBattleLoading(true);
   try {
     prepareBattleTheme();
-    const error = state.facility === 'randoms' ? null : await checkTeam();
+    const error = state.facility === 'randoms';
     $('#builder-error').hidden = !error;
     $('#builder-error').textContent = error || '';
     if (error) {
@@ -2157,9 +2187,11 @@ async function startBattle() {
       body: JSON.stringify({ team: state.team, facility: state.facility }),
     });
     if (state.facility === 'randoms') {
-      state.team = battle.player.team.map(mon => ({ species: mon.species, name: '', level: 50, item: mon.item,
+      state.team = battle.player.team.map(mon => ({
+        species: mon.species, name: '', level: 50, item: mon.item,
         ability: mon.ability, nature: mon.nature, moves: (mon.moves || []).map(move => move.name), evs: {},
-        ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, shiny: mon.shiny }));
+        ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, shiny: mon.shiny
+      }));
       renderRoster();
     }
     setBattleLoading(false);
@@ -2268,7 +2300,7 @@ function bindBattleEvents() {
     $('#random-facility-note').hidden = !isRandoms || history;
     $('.mechanics-note').hidden = isRandoms;
     document.querySelector('.builder-bottom').hidden = history;
-    $('#builder-error').hidden = history;
+    $('#builder-error').hidden = true
     $('#team-tab').classList.toggle('active', !history);
     $('#history-tab').classList.toggle('active', history);
     if (history) renderHistory();
@@ -2304,6 +2336,7 @@ async function initialize() {
     if (state.facility !== 'tower') await changeFacility(state.facility);
     $('#floor-number').textContent = String(state.streak + 1).padStart(2, '0');
     $('#start-battle').disabled = false;
+    $('#builder-error').hidden = true;
   } catch (error) {
     $('#builder-error').textContent = `The simulator could not load its Generation 3 data: ${error.message}`;
     $('#builder-error').hidden = false;
