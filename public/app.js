@@ -55,25 +55,58 @@ function savedMusicVolume() {
   }
 }
 
-function parseFloorStreak(value) {
-  const streak = Number(value);
-  return Number.isFinite(streak) ? Math.max(0, Math.floor(streak)) : 0;
+// ---- Saves: one independent slot per facility (singles, little cup, randoms) -----
+// Each slot holds that facility's floor, team, run history and an "in progress" flag.
+const FACILITIES = ['tower', 'little-cup', 'randoms'];
+const FACILITY_LABELS = { tower: 'Singles', 'little-cup': 'Little Cup', randoms: 'Randoms' };
+const SAVE_VERSION = 2;
+const MAX_HISTORY = 50;
+// A battle that was started but never finished (page closed or refreshed) ends the run.
+// Set to false to keep the same floor instead.
+const FORFEIT_ON_ABANDON = true;
+
+const saveKey = facility => `tower-save-v${SAVE_VERSION}-${facility}`;
+
+function readStoredJson(key) {
+  try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
 }
 
-function loadFacilityStreak(facility) {
-  return parseFloorStreak(localStorage.getItem(`tower-streak-${facility}`));
+function newSave(facility) {
+  return { version: SAVE_VERSION, facility, floor: 1, team: null, battleInProgress: false, history: [], updatedAt: null };
 }
 
-function saveFacilityStreak(facility, streak) {
-  const value = String(parseFloorStreak(streak));
-  localStorage.setItem(`tower-streak-${facility}`, value);
-  if (facility === 'tower') localStorage.setItem('tower-streak', value);
+function sanitizeSave(raw, facility) {
+  const save = newSave(facility);
+  if (!raw || typeof raw !== 'object') return save;
+  const floor = Math.floor(Number(raw.floor));
+  save.floor = Number.isFinite(floor) && floor >= 1 ? floor : 1;
+  save.team = Array.isArray(raw.team) && raw.team.length ? raw.team : null;
+  save.battleInProgress = raw.battleInProgress === true;
+  save.history = Array.isArray(raw.history) ? raw.history.slice(0, MAX_HISTORY) : [];
+  save.updatedAt = typeof raw.updatedAt === 'string' ? raw.updatedAt : null;
+  return save;
+}
+
+// First run after this update: build the slot from the old per-facility keys.
+function migrateLegacySave(facility) {
+  const streak = Number(localStorage.getItem(`tower-streak-${facility}`) ??
+    (facility === 'tower' ? localStorage.getItem('tower-streak') : null));
+  const team = readStoredJson(`tower-team-${facility}`) ??
+    (facility === 'tower' ? readStoredJson('tower-team') : null);
+  return sanitizeSave({
+    floor: (Number.isFinite(streak) ? Math.max(0, Math.floor(streak)) : 0) + 1,
+    team,
+    history: readStoredJson(`tower-history-${facility}`),
+  }, facility);
+}
+
+function loadSave(facility) {
+  const stored = readStoredJson(saveKey(facility));
+  return stored?.version === SAVE_VERSION ? sanitizeSave(stored, facility) : migrateLegacySave(facility);
 }
 
 const savedFacility = localStorage.getItem('tower-facility');
-const initialFacility = ['little-cup', 'randoms'].includes(savedFacility) ? savedFacility : 'tower';
-const initialFacilityStreak = localStorage.getItem(`tower-streak-${initialFacility}`) ??
-  (savedFacility === null || savedFacility === initialFacility ? localStorage.getItem('tower-streak') : null);
+const initialFacility = FACILITIES.includes(savedFacility) ? savedFacility : 'tower';
 
 const state = {
   dex: null,
@@ -88,7 +121,8 @@ const state = {
   battle: null,
   currentLogSide: null,
   hpByActive: new Map(),
-  streak: parseFloorStreak(initialFacilityStreak),
+  save: loadSave(initialFacility),
+  battleFloor: null,
   sfxVolume: savedSfxVolume(),
   musicVolume: savedMusicVolume(),
   battleMusic: null,
@@ -247,13 +281,75 @@ function showToast(message) {
   showToast.timeout = setTimeout(() => { toast.hidden = true; }, 4200);
 }
 
-function persistTeam() {
+// The floor you are on. This is the only floor number: 1-based, saved per facility,
+// and never used to change how strong opponents are.
+function currentFloor() {
+  return state.save.floor;
+}
+
+function commitSave(save = state.save) {
+  save.updatedAt = new Date().toISOString();
   try {
-    localStorage.setItem(`tower-team-${state.facility}`, JSON.stringify(state.team));
-    if (state.facility === 'tower') localStorage.setItem('tower-team', JSON.stringify(state.team));
+    localStorage.setItem(saveKey(save.facility), JSON.stringify(save));
+    return true;
   } catch {
-    showToast('Your browser could not save this team. It will be lost when you leave this page.');
+    showToast('Your browser could not save your progress. It will be lost when you leave this page.');
+    return false;
   }
+}
+
+// Called whenever the team changes in the builder.
+function persistTeam() {
+  if (state.facility !== 'randoms' || state.team.length) state.save.team = state.team;
+  commitSave();
+}
+
+function addHistory(save, floor, team, extra = {}) {
+  save.history.unshift({
+    date: new Date().toISOString(),
+    floor,
+    team: (Array.isArray(team) ? team : []).map(mon => ({
+      species: getSpecies(mon)?.name || mon.species, item: mon.item || '', moves: (mon.moves || []).slice(0, 4),
+    })),
+    ...extra,
+  });
+  save.history = save.history.slice(0, MAX_HISTORY);
+}
+
+// Applies a finished battle to the active save, once per battle, and writes it.
+// Returns the floor that was just fought.
+function recordBattleResult(didWin) {
+  const fought = state.battleFloor ?? currentFloor();
+  if (state.save.battleInProgress) {
+    state.save.battleInProgress = false;
+    if (didWin) {
+      state.save.floor = fought + 1;
+    } else {
+      addHistory(state.save, fought, state.team);
+      state.save.floor = 1;
+    }
+    commitSave();
+  }
+  return fought;
+}
+
+// A save loaded with battleInProgress still set means the last battle never finished.
+// Returns the floor the run ended on, or null if nothing was abandoned.
+function resolveAbandonedBattle(save) {
+  if (!save.battleInProgress) return null;
+  save.battleInProgress = false;
+  let endedOn = null;
+  if (FORFEIT_ON_ABANDON) {
+    endedOn = save.floor;
+    addHistory(save, endedOn, save.team, { abandoned: true });
+    save.floor = 1;
+  }
+  commitSave(save);
+  return endedOn;
+}
+
+function announceAbandonedBattle(floor, facility) {
+  if (floor) showToast(`Your last ${FACILITY_LABELS[facility] || ''} battle was never finished, so that run ended on floor ${floor}.`);
 }
 
 // ---- Hidden Power (Gen 3): the type is decided by the IVs, not the move ----------
@@ -676,7 +772,7 @@ function renderMoves(learnset, set) {
   }
   set.moves = selectedMoves.slice(0, 4);
   syncHiddenPowerIvs(set); // picking "Hidden Power Fire" rewrites the IVs to the Fire spread
-  $('#learnset-note').textContent = `UP TO 4 · LEVEL ${state.facility === 'little-cup' ? 5 : 50} LEARNSET`;
+  $('#learnset-note').textContent = `UP TO 4 · LEVEL ${state.facility === 'little-cup' ? 5 : 50} LEARNSET${hiddenPowerIvNote(set)}`;
 
   for (let index = 0; index < 4; index += 1) {
     const moveName = set.moves[index] || '';
@@ -2075,8 +2171,7 @@ async function renderBattle(battle, initial = false) {
 }
 
 function loadRunHistory() {
-  try { return JSON.parse(localStorage.getItem(`tower-history-${state.facility}`) || '[]'); }
-  catch { return []; }
+  return Array.isArray(state.save?.history) ? state.save.history : [];
 }
 
 function renderHistory() {
@@ -2093,7 +2188,7 @@ function renderHistory() {
   for (const run of runs) {
     const card = document.createElement('article'); card.className = 'history-run';
     const heading = document.createElement('div'); heading.className = 'history-run-heading';
-    const floor = document.createElement('b'); floor.textContent = `FLOOR ${run.floor}`;
+    const floor = document.createElement('b'); floor.textContent = `FLOOR ${run.floor}${run.abandoned ? ' · ABANDONED' : ''}`;
     const date = document.createElement('span'); date.textContent = new Date(run.date).toLocaleDateString();
     heading.append(floor, date);
     const party = document.createElement('div'); party.className = 'history-team';
@@ -2112,14 +2207,15 @@ function renderHistory() {
 
 async function changeFacility(facility) {
   const previousFacility = state.facility;
-  try { localStorage.setItem(`tower-team-${previousFacility}`, JSON.stringify(state.team)); } catch { }
   if (facility !== previousFacility) {
-    saveFacilityStreak(previousFacility, state.streak);
-    state.streak = loadFacilityStreak(facility);
+    if (state.team.length) state.save.team = state.team;
+    commitSave(); // finish writing the old facility's slot
+    state.save = loadSave(facility); // each facility has its own floor, team and history
+    announceAbandonedBattle(resolveAbandonedBattle(state.save), facility);
   }
   state.facility = facility;
-  localStorage.setItem('tower-facility', facility);
-  $('#floor-number').textContent = String(state.streak + 1).padStart(2, '0');
+  try { localStorage.setItem('tower-facility', facility); } catch { }
+  $('#floor-number').textContent = String(currentFloor()).padStart(2, '0');
   $('#dex-label').textContent = facility === 'little-cup' ? 'LITTLE CUP' : facility === 'randoms' ? 'RANDOMS' : 'DEX';
   $('#start-battle .button-label').textContent = facility === 'little-cup' ? 'ENTER LITTLE CUP' : facility === 'randoms' ? 'ENTER RANDOMS TOWER' : 'ENTER THE TOWER';
   document.querySelector('.builder-grid').hidden = facility === 'randoms';
@@ -2138,7 +2234,7 @@ async function changeFacility(facility) {
   });
   if (facility === 'little-cup') {
     let savedLittleCup = null;
-    try { savedLittleCup = JSON.parse(localStorage.getItem('tower-team-little-cup') || 'null'); } catch { }
+    savedLittleCup = state.save.team;
     if (Array.isArray(savedLittleCup) && savedLittleCup.length === 6 && savedLittleCup.every(mon => state.speciesById.get(toId(mon.species))?.tier === 'LC')) {
       state.team = ensureTeamDefaults(savedLittleCup);
     } else {
@@ -2156,7 +2252,7 @@ async function changeFacility(facility) {
     state.team = [];
   } else {
     let savedTower = null;
-    try { savedTower = JSON.parse(localStorage.getItem('tower-team-tower') || localStorage.getItem('tower-team') || 'null'); } catch { }
+    savedTower = state.save.team;
     state.team = ensureTeamDefaults(Array.isArray(savedTower) && savedTower.length === 6 ? savedTower : clone(SAMPLE_TEAM));
   }
   state.selected = 0;
@@ -2171,24 +2267,12 @@ async function changeFacility(facility) {
 function finishBattle(battle) {
   stopBattleMusic();
   const didWin = battle.winner === battle.player.name;
-  if (didWin) {
-    state.streak += 1;
-    saveFacilityStreak(state.facility, state.streak);
-  } else {
-    const runs = loadRunHistory();
-    runs.unshift({
-      date: new Date().toISOString(), floor: state.streak + 1,
-      team: state.team.map(mon => ({ species: getSpecies(mon)?.name || mon.species, item: mon.item || '', moves: (mon.moves || []).slice(0, 4) }))
-    });
-    localStorage.setItem(`tower-history-${state.facility}`, JSON.stringify(runs.slice(0, 50)));
-    state.streak = 0;
-    saveFacilityStreak(state.facility, 0);
-  }
-  $('#floor-number').textContent = String(didWin ? state.streak : 1).padStart(2, '0');
+  const fought = recordBattleResult(didWin); // auto-save at the end of the battle
+  $('#floor-number').textContent = String(fought).padStart(2, '0');
   $('#battle-result').hidden = false;
   $('#result-title').textContent = didWin ? 'Floor cleared!' : 'Run ended.';
   $('#result-title').style.color = didWin ? 'var(--acid)' : 'var(--coral)';
-  $('#result-subtitle').textContent = didWin ? `Floor ${state.streak} cleared.` : 'Try again from Floor 1? Your run will restart at the beginning.';
+  $('#result-subtitle').textContent = didWin ? `Floor ${fought} cleared.` : `Run ended on floor ${fought}. Your next run restarts at Floor 1.`;
   $('#next-battle .button-label').textContent = didWin ? 'NEXT FLOOR' : 'RESTART FROM FLOOR 1';
   $('#action-heading').hidden = true;
   $('#action-buttons').replaceChildren();
@@ -2203,7 +2287,7 @@ async function startBattle() {
   setBattleLoading(true);
   try {
     prepareBattleTheme();
-    const error = null;
+    const error = null; // the server validates the team; Randoms builds its own
     $('#builder-error').hidden = !error;
     $('#builder-error').textContent = error || '';
     if (error) {
@@ -2224,12 +2308,17 @@ async function startBattle() {
       state.team.forEach(syncHiddenPowerIvs);
       renderRoster();
     }
+    // Auto-save at the start of the battle: this team, this floor, battle in progress.
+    state.battleFloor = currentFloor();
+    state.save.team = state.team;
+    state.save.battleInProgress = true;
+    commitSave();
     setBattleLoading(false);
     $('#battle-log').replaceChildren();
     state.currentLogSide = null;
     $('#battle-turn-message').replaceChildren();
     $('#battle-result').hidden = true;
-    $('#floor-number').textContent = String(state.streak + 1).padStart(2, '0');
+    $('#floor-number').textContent = String(currentFloor()).padStart(2, '0');
     await renderBattle(battle, true);
   } catch (requestError) {
     stopBattleMusic();
@@ -2307,6 +2396,11 @@ function bindBattleEvents() {
     stopBattleMusic();
     $('#battle-screen').hidden = true;
     $('#builder-screen').hidden = false;
+    // Leaving mid-battle ends the run right now. Without this the "in progress" flag stays set and
+    // the loss would be recorded later, when the save is next loaded (e.g. on a facility switch).
+    const endedOn = resolveAbandonedBattle(state.save);
+    $('#floor-number').textContent = String(currentFloor()).padStart(2, '0');
+    if (endedOn) showToast(`Run ended on floor ${endedOn}.`);
   });
   leaveDialog.addEventListener('click', event => {
     if (event.target === leaveDialog) leaveDialog.close();
@@ -2337,7 +2431,7 @@ function bindBattleEvents() {
   };
   $('#team-tab').addEventListener('click', () => setBuilderView(false));
   $('#history-tab').addEventListener('click', () => setBuilderView(true));
-  $('#clear-history').addEventListener('click', () => { localStorage.removeItem(`tower-history-${state.facility}`); renderHistory(); });
+  $('#clear-history').addEventListener('click', () => { state.save.history = []; commitSave(); renderHistory(); });
 }
 
 async function initialize() {
@@ -2347,12 +2441,8 @@ async function initialize() {
     state.movesById = new Map(state.dex.moves.map(move => [move.id, move]));
     populateSpeciesPicker();
 
-    let savedTeam = null;
-    try {
-      savedTeam = JSON.parse(localStorage.getItem(`tower-team-${state.facility}`) || localStorage.getItem('tower-team') || 'null');
-    } catch {
-      showToast('The saved team could not be read. Loading the sample team instead.');
-    }
+    announceAbandonedBattle(resolveAbandonedBattle(state.save), state.facility);
+    const savedTeam = state.save.team;
     state.team = ensureTeamDefaults(Array.isArray(savedTeam) && savedTeam.length === 6 ? savedTeam : clone(SAMPLE_TEAM));
     renderRoster();
     bindEditorEvents();
@@ -2364,7 +2454,7 @@ async function initialize() {
     $('#team-rule-level').textContent = initialLevelLabel;
     $('#log-level').textContent = initialLevelLabel;
     if (state.facility !== 'tower') await changeFacility(state.facility);
-    $('#floor-number').textContent = String(state.streak + 1).padStart(2, '0');
+    $('#floor-number').textContent = String(currentFloor()).padStart(2, '0');
     $('#start-battle').disabled = false;
     $('#builder-error').hidden = true;
   } catch (error) {
