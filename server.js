@@ -5,6 +5,10 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Showdown from 'pokemon-showdown';
+import {
+  HP_TYPE_ORDER, PHYSICAL_TYPES_GEN3, getHiddenPower, hiddenPowerIvsFor,
+  hiddenPowerTypeOfMove, describeHiddenPowerIvs, applyHiddenPowerToSet,
+} from './hidden-power.js';
 
 const { Battle, Dex, TeamValidator } = Showdown;
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -74,8 +78,9 @@ const abilities = [...new Set(speciesList.flatMap(species => species.abilities))
     desc: ability.desc,
   }));
 
-const moves = dex.moves.all()
-  .filter(move => move.exists && move.gen <= 3 && !move.isNonstandard)
+const baseMoves = dex.moves.all()
+  .filter(move => move.exists && move.gen <= 3 && !move.isNonstandard &&
+    (!move.id.startsWith('hiddenpower') || move.id === 'hiddenpower'))
   .sort((a, b) => a.name.localeCompare(b.name))
   .map(move => ({
     id: move.id,
@@ -89,6 +94,23 @@ const moves = dex.moves.all()
     shortDesc: move.shortDesc,
     desc: move.desc,
   }));
+// One selectable move per Hidden Power type. The generic 'hiddenpower' entry is kept
+// only so battle logs/animations can still look it up; it is never offered in a learnset.
+const genericHiddenPower = baseMoves.find(move => move.id === 'hiddenpower');
+const hiddenPowerMoves = HP_TYPE_ORDER.map(type => ({
+  id: `hiddenpower${Dex.toID(type)}`,
+  name: `Hidden Power ${type}`,
+  type,
+  category: PHYSICAL_TYPES_GEN3.has(type) ? 'Physical' : 'Special',
+  power: 70,
+  accuracy: 100,
+  pp: genericHiddenPower?.pp ?? 15,
+  target: 'normal',
+  shortDesc: `${type}-type, power 70. Selecting it sets IVs: ${describeHiddenPowerIvs(type)}.`,
+  desc: `In Generation 3 Hidden Power's type and power come from the user's IVs. ` +
+    `This ${type} version needs IVs of ${describeHiddenPowerIvs(type)} (others 31), which gives power 70.`,
+}));
+const moves = [...baseMoves, ...hiddenPowerMoves].sort((a, b) => a.name.localeCompare(b.name));
 const moveById = new Map(moves.map(move => [move.id, move]));
 const itemsById = new Map(items.map(item => [item.id, item]));
 const natures = dex.natures.all().map(nature => ({
@@ -142,17 +164,20 @@ function getLearnsetMoves(speciesId, level = 50) {
 
   const learnset = dex.species.getFullLearnset(speciesId);
   const moveIds = new Set();
+  let learnsHiddenPower = false;
   for (const entry of learnset) {
     for (const [moveId, sources] of Object.entries(entry.learnset)) {
       const obtainableAtLevel = sources.some(source => {
         if (Number(source[0]) > 3) return false;
         return source[1] !== 'L' || Number(source.slice(2)) <= level;
       });
-      if (obtainableAtLevel && moveById.has(moveId)) {
-        moveIds.add(moveId);
-      }
+      if (!obtainableAtLevel) continue;
+      if (moveId.startsWith('hiddenpower')) learnsHiddenPower = true;
+      else if (moveById.has(moveId)) moveIds.add(moveId);
     }
   }
+  // Hidden Power is a TM in Gen 3 and every type is legal (IVs decide the type).
+  if (learnsHiddenPower) hiddenPowerMoves.forEach(move => moveIds.add(move.id));
   const result = [...moveIds].map(id => moveById.get(id)).sort((a, b) => a.name.localeCompare(b.name));
   learnsetCache.set(cacheKey, result);
   return result;
@@ -185,6 +210,44 @@ function isLittleCupEligible(speciesId) {
   return species.tier === 'LC' || LITTLE_CUP_ALLOWED_EXCEPTIONS.has(species.id);
 }
 
+// A move counts as learnable if its id is in the learnset. Generic 'Hidden Power' is
+// accepted whenever any typed Hidden Power is learnable; unknown types never are.
+function isLearnableMove(learnableIds, moveName) {
+  const hpType = hiddenPowerTypeOfMove(moveName);
+  if (hpType === undefined) return learnableIds.has(Dex.toID(moveName));
+  if (hpType === false) return false;
+  return learnableIds.has(`hiddenpower${Dex.toID(hpType === null ? 'Dark' : hpType)}`);
+}
+
+function moveNameFromId(moveId) {
+  const hpType = hiddenPowerTypeOfMove(moveId);
+  if (hpType === undefined) {
+    const move = dex.moves.get(moveId);
+    return move.exists ? move.name : null;
+  }
+  if (hpType === false) return null;
+  return hpType === null ? 'Hidden Power' : `Hidden Power ${hpType}`;
+}
+
+function hiddenPowerOf(pokemon) {
+  const fromIvs = getHiddenPower(pokemon?.set?.ivs);
+  return { type: pokemon?.hpType || fromIvs.type, power: pokemon?.hpPower || fromIvs.power };
+}
+
+function hiddenPowerMoveInfo(pokemon) {
+  const { type, power } = hiddenPowerOf(pokemon);
+  return { type, power, category: PHYSICAL_TYPES_GEN3.has(type) ? 'Physical' : 'Special' };
+}
+
+// Same as dex.moves.get(), but Hidden Power reports the type/power/category this
+// particular Pokémon's IVs give it (the AI would otherwise see a Normal-type, 0-power move).
+function moveDataFor(pokemon, moveId) {
+  const data = dex.moves.get(moveId);
+  if (moveId !== 'hiddenpower' || !data.exists) return data;
+  const info = hiddenPowerMoveInfo(pokemon);
+  return { ...data, exists: data.exists, type: info.type, basePower: info.power, category: info.category };
+}
+
 function validateTeam(team, facility = 'tower') {
   if (!Array.isArray(team) || team.length !== 6) {
     return 'A team must contain exactly six Pokémon.';
@@ -213,9 +276,13 @@ function validateTeam(team, facility = 'tower') {
     }
     const moveSeen = new Set();
     for (const moveName of set.moves) {
-      const moveId = Dex.toID(moveName);
-      if (!learnable.has(moveId)) return `${speciesById.get(speciesId).name} cannot learn ${moveName} in Generation 3.`;
-      if (moveSeen.has(moveId)) return `${speciesById.get(speciesId).name} cannot use the same move twice.`;
+      const moveId = normalizedMoveId(moveName);
+      if (!isLearnableMove(learnable, moveName)) return `${speciesById.get(speciesId).name} cannot learn ${moveName} in Generation 3.`;
+      if (moveSeen.has(moveId)) {
+        return moveId === 'hiddenpower'
+          ? `${speciesById.get(speciesId).name} can only have one Hidden Power type, because the type comes from its IVs.`
+          : `${speciesById.get(speciesId).name} cannot use the same move twice.`;
+      }
       moveSeen.add(moveId);
     }
 
@@ -236,6 +303,18 @@ function validateTeam(team, facility = 'tower') {
     const stats = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
     if (!set.ivs || stats.some(stat => !Number.isInteger(set.ivs[stat]) || set.ivs[stat] < 0 || set.ivs[stat] > 31)) {
       return `${speciesData.name} has invalid IVs.`;
+    }
+    // Hidden Power: the chosen type must match what the IVs actually produce.
+    const hpIndex = set.moves.findIndex(moveName => hiddenPowerTypeOfMove(moveName) !== undefined);
+    if (hpIndex !== -1) {
+      const requested = hiddenPowerTypeOfMove(set.moves[hpIndex]);
+      const actual = getHiddenPower(set.ivs);
+      if (requested === null) {
+        set.moves[hpIndex] = `Hidden Power ${actual.type}`; // resolve a generic move from the IVs
+      } else if (requested !== actual.type) {
+        return `${speciesData.name}'s Hidden Power ${requested} does not match its IVs (they give ` +
+          `Hidden Power ${actual.type}). Use IVs of ${describeHiddenPowerIvs(requested)}, other stats 31.`;
+      }
     }
   }
   const validationErrors = teamValidator.validateTeam(team);
@@ -297,7 +376,7 @@ function normalizeSetMoves(moveOptions, speciesId, level = 50) {
     const options = Array.isArray(moveOption) ? moveOption : [moveOption];
     const usable = options.filter(moveName =>
       typeof moveName === 'string' &&
-      learnableIds.has(normalizedMoveId(moveName)) &&
+      isLearnableMove(learnableIds, moveName) &&
       !selectedIds.has(normalizedMoveId(moveName)),
     );
     if (!usable.length) return null;
@@ -321,6 +400,8 @@ function normalizeOpponentSet(species, sourceSet, level = 50) {
     moves: normalizeSetMoves(sourceSet.moves, species.id, level),
   };
   if (!set.moves || !set.ivs || Array.isArray(set.ivs)) return null;
+  // Resolve Hidden Power: concrete type name + IVs that actually produce it.
+  if (!applyHiddenPowerToSet(set, { speciesTypes: species.types })) return null;
   if (Object.values(set.evs).some(value => !Number.isInteger(value) || value < 0 || value > 255) ||
     Object.values(set.evs).reduce((total, value) => total + value, 0) > 508) return null;
   if (teamValidator.validateTeam([set])) return null;
@@ -354,14 +435,16 @@ function createRandomBattleSet(species, usedItems, level = 50) {
   const options = (randomSpecies?.sets || [])
     .map(randomSet => {
       const moves = [...new Set((randomSet.movepool || [])
-        .filter(moveId => learnableIds.has(normalizedMoveId(moveId)))
-        .map(moveId => dex.moves.get(moveId))
-        .filter(move => move.exists)
-        .map(move => move.name))];
+        .filter(moveId => isLearnableMove(learnableIds, moveId))
+        .map(moveId => moveNameFromId(moveId))
+        .filter(Boolean))];
       if (!moves.length) return null;
       const selectedMoves = [];
-      while (selectedMoves.length < Math.min(4, moves.length)) {
-        const move = pickRandom(moves.filter(candidate => !selectedMoves.includes(candidate)));
+      // Only one Hidden Power type per Pokémon (its IVs can only make one).
+      const distinctMoves = new Set(moves.map(normalizedMoveId)).size;
+      while (selectedMoves.length < Math.min(4, distinctMoves)) {
+        const move = pickRandom(moves.filter(candidate =>
+          !selectedMoves.some(chosen => normalizedMoveId(chosen) === normalizedMoveId(candidate))));
         selectedMoves.push(move);
       }
       const availableItems = items.filter(item => !usedItems.has(item.id));
@@ -377,6 +460,7 @@ function createRandomBattleSet(species, usedItems, level = 50) {
         ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 },
         moves: selectedMoves,
       };
+      if (!applyHiddenPowerToSet(set, { speciesTypes: species.types, randomizeGeneric: true })) return null;
       return teamValidator.validateTeam([set]) ? null : set;
     })
     .filter(Boolean);
@@ -408,6 +492,8 @@ function pokemonSummary(pokemon, { revealMoves = false, slot = 0, hidden = false
   if (revealMoves === true) {
     const nature = pokemon.set.nature || 'Serious';
     Object.assign(summary, {
+      ivs: { ...pokemon.set.ivs },
+      evs: { ...pokemon.set.evs },
       item: pokemon.item || '',
       ability: pokemon.ability,
       nature,
@@ -425,6 +511,7 @@ function pokemonSummary(pokemon, { revealMoves = false, slot = 0, hidden = false
         name: move.move,
         pp: move.pp,
         maxpp: move.maxpp,
+        ...(move.id === 'hiddenpower' ? hiddenPowerMoveInfo(pokemon) : {}),
       }));
   }
   return summary;
@@ -501,6 +588,7 @@ function availableActions(side) {
       id: move.id,
       disabled: Boolean(move.disabled),
       pp: move.pp,
+      ...(move.id === 'hiddenpower' ? hiddenPowerMoveInfo(side.pokemon.find(pokemon => pokemon.isActive)) : {}),
     })) || [],
     switches: side.pokemon
       .map((pokemon, index) => ({ pokemon, index }))
@@ -596,7 +684,7 @@ function weatherAffinity(side, weather, revealedOnly = false) {
 
     for (const move of pokemon.moveSlots) {
       if (revealedOnly && !move.used) continue;
-      const moveData = dex.moves.get(move.id);
+      const moveData = moveDataFor(pokemon, move.id);
       if (weather === 'raindance') {
         if (moveData.type === 'Water' && moveData.category !== 'Status') score += 2;
         if (moveData.type === 'Fire' && moveData.category !== 'Status') score -= 2;
@@ -637,7 +725,7 @@ function focusPunchUtility(battle, source, target, moveData) {
   const focusPriority = moveData.priority || 0;
   const canInterrupt = target.moveSlots.some(move => {
     if (move.pp <= 0) return false;
-    const candidate = dex.moves.get(move.id);
+    const candidate = moveDataFor(target, move.id);
     if (!candidate.exists || candidate.category === 'Status' || candidate.basePower <= 0) return false;
     const actsFirst = candidate.priority > focusPriority ||
       (candidate.priority === focusPriority && target.getStat('spe') >= source.getStat('spe'));
@@ -690,7 +778,7 @@ function moveUtility(battle, source, target, moveData) {
 }
 
 function scoreOpponentMove(battle, source, target, move) {
-  const moveData = dex.moves.get(move.id);
+  const moveData = moveDataFor(source, move.id);
   if (!moveData.exists) return { index: move.index, score: 0 };
 
   const accuracy = moveData.accuracy === true
@@ -763,7 +851,7 @@ function estimateIncomingThreat(battle, attacker, defender) {
     // strongest legal attack the player can actually bring.
     .filter(move => move.pp > 0)
     .map(move => {
-      const data = dex.moves.get(move.id);
+      const data = moveDataFor(attacker, move.id);
       if (!data.exists || data.category === 'Status' || !data.basePower) return 0;
       const accuracy = data.accuracy === true
         ? 1
@@ -791,7 +879,7 @@ function switchEntryBonus(source, target, knownThreat) {
   if (source.ability === 'intimidate' && knownThreat > 0) {
     const physicalMoves = target.moveSlots.filter(move => {
       if (!move.used || move.pp <= 0) return false;
-      return dex.moves.get(move.id).category === 'Physical';
+      return moveDataFor(target, move.id).category === 'Physical';
     });
     if (physicalMoves.length) score += 10;
   }
@@ -919,7 +1007,13 @@ function settleOpponentChoices(entry) {
 
 async function handleApi(request, response, url) {
   if (request.method === 'GET' && url.pathname === '/api/dex') {
-    sendJson(response, 200, { species: speciesList, items, abilities, moves, natures, types: gen3Types, typeChart });
+    sendJson(response, 200, {
+      species: speciesList, items, abilities, moves, natures, types: gen3Types, typeChart,
+      hiddenPower: {
+        types: HP_TYPE_ORDER,
+        presets: Object.fromEntries(HP_TYPE_ORDER.map(type => [type, hiddenPowerIvsFor(type)])),
+      },
+    });
     return;
   }
 

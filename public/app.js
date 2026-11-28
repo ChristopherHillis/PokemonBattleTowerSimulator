@@ -256,6 +256,54 @@ function persistTeam() {
   }
 }
 
+// ---- Hidden Power (Gen 3): the type is decided by the IVs, not the move ----------
+const HP_STAT_ORDER = ['hp', 'atk', 'def', 'spe', 'spa', 'spd'];
+
+function hiddenPowerFromIvs(ivs = {}) {
+  const types = state.dex?.hiddenPower?.types;
+  if (!types) return null;
+  let typeBits = 0;
+  HP_STAT_ORDER.forEach((stat, i) => {
+    const iv = Number.isInteger(ivs?.[stat]) ? ivs[stat] : 31;
+    typeBits += (iv % 2) << i;
+  });
+  return types[Math.floor((typeBits * 15) / 63)];
+}
+
+// 'Hidden Power Fire' -> 'Fire', 'Hidden Power' -> null (generic), other moves -> undefined
+function hiddenPowerTypeOfMoveName(moveName) {
+  const id = toId(moveName);
+  if (!id.startsWith('hiddenpower')) return undefined;
+  const suffix = id.slice('hiddenpower'.length).replace(/\d+$/, '');
+  if (!suffix) return null;
+  return state.dex?.hiddenPower?.types.find(type => toId(type) === suffix) || false;
+}
+
+// Keeps a set's IVs consistent with its Hidden Power move (and undoes it when the move is removed).
+function syncHiddenPowerIvs(set) {
+  const presets = state.dex?.hiddenPower?.presets;
+  if (!presets || !Array.isArray(set.moves)) return;
+  const index = set.moves.findIndex(move => hiddenPowerTypeOfMoveName(move) !== undefined);
+  if (index !== -1) {
+    let type = hiddenPowerTypeOfMoveName(set.moves[index]);
+    if (type === null) { // old saves / engine names: generic "Hidden Power" -> use what the IVs already give
+      type = hiddenPowerFromIvs(set.ivs);
+      set.moves[index] = `Hidden Power ${type}`;
+    }
+    if (type && hiddenPowerFromIvs(set.ivs) !== type) set.ivs = { ...presets[type] };
+  } else if (Object.values(presets).some(preset => STAT_LABELS.every(([stat]) => (set.ivs?.[stat] ?? 31) === preset[stat]))) {
+    set.ivs = { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 };
+  }
+}
+
+function hiddenPowerIvNote(set) {
+  const index = (set.moves || []).findIndex(move => hiddenPowerTypeOfMoveName(move));
+  if (index === -1) return '';
+  const type = hiddenPowerTypeOfMoveName(set.moves[index]);
+  const changed = STAT_LABELS.filter(([stat]) => set.ivs?.[stat] !== 31).map(([stat, label]) => `${label} ${set.ivs[stat]}`);
+  return ` · ${type.toUpperCase()} HIDDEN POWER SETS IVS: ${changed.length ? changed.join(', ') : 'ALL 31'}`;
+}
+
 function ensureTeamDefaults(team) {
   return team.map((set, index) => {
     const species = state.speciesById.get(toId(set.species)) || state.dex.species[index];
@@ -268,7 +316,7 @@ function ensureTeamDefaults(team) {
       evs[stat] = Math.min(evs[stat], remainingEvs);
       remainingEvs -= evs[stat];
     }
-    return {
+    const normalized = {
       ...set,
       species: species.name,
       name: set.name || '',
@@ -281,6 +329,8 @@ function ensureTeamDefaults(team) {
       ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31, ...(set.ivs || {}) },
       moves: Array.isArray(set.moves) ? set.moves.slice(0, 4) : [],
     };
+    syncHiddenPowerIvs(normalized);
+    return normalized;
   });
 }
 
@@ -349,7 +399,7 @@ function populateSpeciesPicker() {
 
   const moveSelect = $('#species-move-filter');
   moveSelect.replaceChildren(option('', 'Any move', ''));
-  moveSelect.append(...state.dex.moves.map(move => option(move.id, move.name, '')));
+  moveSelect.append(...state.dex.moves.filter(move => move.id !== 'hiddenpower').map(move => option(move.id, move.name, '')));
 
   const statSelect = $('#species-sort-stat');
   statSelect.replaceChildren(option('name', 'Sort: Name', 'name'));
@@ -517,7 +567,6 @@ async function renderEditor() {
 
   $('#nickname-input').value = set.name;
   $('#editor-level').textContent = String(battleLevel);
-  $('#locked-level-value').firstChild.textContent = String(battleLevel);
   $('#learnset-note').textContent = `UP TO 4 · LEVEL ${battleLevel} LEARNSET`;
   $('.calculated-stats-heading').textContent = `LEVEL ${battleLevel} STATS AFTER EVS & NATURE`;
   $('#shiny-toggle').checked = set.shiny;
@@ -614,6 +663,7 @@ function renderBaseStats(species) {
 function renderMoves(learnset, set) {
   const moveList = $('#move-list');
   moveList.replaceChildren();
+  syncHiddenPowerIvs(set); // turns an old generic "Hidden Power" into a typed one before matching the learnset
   const selectedMoves = [];
   for (const moveName of set.moves) {
     const move = learnset.find(entry => entry.id === toId(moveName));
@@ -625,6 +675,8 @@ function renderMoves(learnset, set) {
     selectedMoves.push(fallback.name);
   }
   set.moves = selectedMoves.slice(0, 4);
+  syncHiddenPowerIvs(set); // picking "Hidden Power Fire" rewrites the IVs to the Fire spread
+  $('#learnset-note').textContent = `UP TO 4 · LEVEL ${state.facility === 'little-cup' ? 5 : 50} LEARNSET`;
 
   for (let index = 0; index < 4; index += 1) {
     const moveName = set.moves[index] || '';
@@ -657,6 +709,7 @@ function renderMoves(learnset, set) {
       updatedMoves[index] = selected ? selected.name : '';
       set.moves = updatedMoves.filter(Boolean);
       renderMoves(learnset, set);
+      renderCalculatedStats(set, getSpecies(set)); // IVs may have changed
       renderRoster();
       persistTeam();
     });
@@ -1812,7 +1865,10 @@ function renderActions(battle) {
   $('#action-heading span:last-child').textContent = forcedSwitch ? 'CHOOSE A POKÉMON' : 'CHOOSE AN ACTION';
   if (actions.kind === 'move') {
     actions.moves.forEach((move, index) => {
-      const data = state.movesById.get(move.id);
+      const baseData = state.movesById.get(move.id);
+      const data = baseData && move.type
+        ? { ...baseData, type: move.type, category: move.category || baseData.category, power: move.power ?? baseData.power }
+        : baseData;
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'action-button';
@@ -2094,6 +2150,7 @@ async function changeFacility(facility) {
           ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, moves: learnset.slice(0, 4).map(move => move.name)
         };
       }));
+      state.team.forEach(syncHiddenPowerIvs);
     }
   } else if (facility === 'randoms') {
     state.team = [];
@@ -2146,7 +2203,7 @@ async function startBattle() {
   setBattleLoading(true);
   try {
     prepareBattleTheme();
-    const error = state.facility === 'randoms';
+    const error = null;
     $('#builder-error').hidden = !error;
     $('#builder-error').textContent = error || '';
     if (error) {
@@ -2161,9 +2218,10 @@ async function startBattle() {
     if (state.facility === 'randoms') {
       state.team = battle.player.team.map(mon => ({
         species: mon.species, name: '', level: 50, item: mon.item,
-        ability: mon.ability, nature: mon.nature, moves: (mon.moves || []).map(move => move.name), evs: {},
-        ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, shiny: mon.shiny
+        ability: mon.ability, nature: mon.nature, moves: (mon.moves || []).map(move => move.name), evs: mon.evs || {},
+        ivs: mon.ivs || { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, shiny: mon.shiny
       }));
+      state.team.forEach(syncHiddenPowerIvs);
       renderRoster();
     }
     setBattleLoading(false);
